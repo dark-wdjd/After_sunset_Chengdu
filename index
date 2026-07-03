@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>After Sunset in Chengdu · 3D Map</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --gold: #c8a96e; --dark: rgba(6,6,18,0.94); --ktv: #e040fb; --dance: #00e5ff; }
+    body { background: #06060e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; width: 100vw; color: #fff; }
+    #map { position: absolute; inset: 0; }
+
+    /* ── Loader ── */
+    #loader {
+      position: fixed; inset: 0; z-index: 200;
+      background: #06060e;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: opacity 0.9s ease;
+    }
+    #loader.fade-out { opacity: 0; pointer-events: none; }
+    .ld-lantern { font-size: 52px; margin-bottom: 22px; animation: swing 2.4s ease-in-out infinite; transform-origin: top center; }
+    @keyframes swing { 0%,100%{transform:rotate(-10deg)} 50%{transform:rotate(10deg)} }
+    .ld-title { font-size: 11px; letter-spacing: 0.32em; text-transform: uppercase; color: rgba(255,255,255,0.35); margin-bottom: 30px; }
+    .ld-track { width: 220px; height: 2px; background: rgba(255,255,255,0.07); border-radius: 2px; overflow: hidden; }
+    .ld-fill { height: 100%; background: var(--gold); width: 0%; transition: width 0.25s ease; border-radius: 2px; }
+    .ld-hint { margin-top: 16px; font-size: 10px; letter-spacing: 0.12em; color: rgba(255,255,255,0.2); }
+
+    /* ── Top bar ── */
+    #topbar {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 20; padding: 22px 28px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 100%);
+      display: flex; align-items: flex-start; justify-content: space-between; pointer-events: none;
+    }
+    #topbar h1 { font-size: 13px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.92); transition: color 0.3s; }
+    #topbar p { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 4px; letter-spacing: 0.08em; }
+    #ctrl-hint { text-align: right; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.2); line-height: 1.9; }
+
+    /* ── Mode toggle ── */
+    #mode-toggle {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 30;
+      display: flex; align-items: center; gap: 0;
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 30px; padding: 3px; backdrop-filter: blur(14px);
+    }
+    .toggle-btn {
+      font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 7px 18px; border-radius: 24px; border: none; cursor: pointer;
+      transition: all 0.25s; background: none; color: rgba(255,255,255,0.4);
+      white-space: nowrap;
+    }
+    .toggle-btn.active-bar { background: var(--gold); color: #000; }
+    .toggle-btn.active-ktv { background: var(--ktv); color: #fff; }
+    .toggle-btn.active-dance { background: var(--dance); color: #000; }
+
+    /* ── Ride button ── */
+    #ride-btn {
+      position: absolute; top: 68px; left: 50%; transform: translateX(-50%); z-index: 30;
+      background: rgba(0,0,0,0.6); border: 1px solid rgba(200,169,110,0.45);
+      color: var(--gold); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
+      padding: 8px 22px; border-radius: 24px; cursor: pointer; transition: all 0.3s;
+      white-space: nowrap; backdrop-filter: blur(12px);
+    }
+    #ride-btn:hover { background: rgba(200,169,110,0.14); border-color: var(--gold); }
+    #ride-btn.riding { background: rgba(200,169,110,0.2); border-color: var(--gold); color: #e0c080; }
+    #ride-btn.ktv-mode { border-color: rgba(224,64,251,0.45); color: var(--ktv); }
+    #ride-btn.ktv-mode:hover { background: rgba(224,64,251,0.14); border-color: var(--ktv); }
+    #ride-btn.ktv-mode.riding { background: rgba(224,64,251,0.2); border-color: var(--ktv); color: #f06cff; }
+    #ride-btn.dance-mode { border-color: rgba(0,229,255,0.45); color: var(--dance); }
+    #ride-btn.dance-mode:hover { background: rgba(0,229,255,0.12); border-color: var(--dance); }
+    #ride-btn.dance-mode.riding { background: rgba(0,229,255,0.2); border-color: var(--dance); color: #5ff; }
+
+    /* ── Status ── */
+    #status {
+      position: absolute; top: 110px; left: 50%; transform: translateX(-50%); z-index: 30;
+      font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: rgba(255,255,255,0.3); white-space: nowrap; pointer-events: none;
+      transition: opacity 0.4s; opacity: 0;
+    }
+    #status.visible { opacity: 1; }
+
+    /* ── Info card (shared by bars & KTV) ── */
+    #bar-card {
+      position: absolute; top: 50%; right: 28px; transform: translateY(-50%) translateX(120%);
+      z-index: 30; width: 300px;
+      transition: transform 0.55s cubic-bezier(0.22,1,0.36,1), opacity 0.4s;
+      opacity: 0; pointer-events: none;
+    }
+    #bar-card.visible { transform: translateY(-50%) translateX(0); opacity: 1; pointer-events: auto; }
+    .bc-wrap { background: var(--dark); backdrop-filter: blur(22px); border: 1px solid rgba(200,169,110,0.22); border-radius: 16px; overflow: hidden; transition: border-color 0.3s; }
+    .bc-wrap.ktv { border-color: rgba(224,64,251,0.3); }
+    .bc-wrap.dance { border-color: rgba(0,229,255,0.3); }
+    .bc-photo { height: 155px; position: relative; overflow: hidden; }
+    .bc-photo-bg { position: absolute; inset: 0; background-size: cover; background-position: center; transition: transform 6s ease; }
+    #bar-card.visible .bc-photo-bg { transform: scale(1.04); }
+    .bc-photo-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(6,6,18,0.95) 0%, rgba(6,6,18,0.1) 70%); }
+    .bc-photo-label { position: absolute; bottom: 0; left: 0; right: 0; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; }
+    .bc-stop-tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); transition: color 0.3s; }
+    .bc-stop-tag.ktv { color: var(--ktv); }
+    .bc-stop-tag.dance { color: var(--dance); }
+    .bc-close-btn { background: none; border: none; color: rgba(255,255,255,0.3); font-size: 20px; cursor: pointer; line-height: 1; transition: color 0.2s; }
+    .bc-close-btn:hover { color: rgba(255,255,255,0.8); }
+    .bc-body { padding: 14px 16px 18px; }
+    .bc-name { font-size: 22px; font-weight: 300; color: rgba(255,255,255,0.95); margin-bottom: 3px; }
+    .bc-loc { font-size: 11px; color: rgba(255,255,255,0.28); margin-bottom: 10px; line-height: 1.5; }
+    .bc-desc { font-size: 12px; color: rgba(255,255,255,0.5); line-height: 1.65; margin-bottom: 14px; }
+    .bc-rule { width: 24px; height: 1px; background: rgba(200,169,110,0.3); margin-bottom: 12px; transition: background 0.3s; }
+    .bc-rule.ktv { background: rgba(224,64,251,0.35); }
+    .bc-rule.dance { background: rgba(0,229,255,0.35); }
+    .bc-must { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.2); margin-bottom: 8px; }
+    .bc-drinks { list-style: none; }
+    .bc-drinks li { font-size: 12px; color: rgba(255,255,255,0.5); padding: 3px 0; display: flex; align-items: center; gap: 8px; }
+    .bc-drinks li::before { content: ''; width: 3px; height: 3px; border-radius: 50%; background: var(--gold); flex-shrink: 0; transition: background 0.3s; }
+    .bc-drinks.ktv li::before { background: var(--ktv); }
+    .bc-drinks.dance li::before { background: var(--dance); }
+
+    /* ── Landmark card ── */
+    #lm-card {
+      position: absolute; bottom: 80px; left: 28px; z-index: 30; width: 280px;
+      transform: translateY(14px); opacity: 0; pointer-events: none;
+      transition: transform 0.4s cubic-bezier(0.22,1,0.36,1), opacity 0.35s;
+    }
+    #lm-card.visible { transform: translateY(0); opacity: 1; pointer-events: auto; }
+    .lm-wrap { background: var(--dark); backdrop-filter: blur(22px); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; overflow: hidden; }
+.lm-header { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; }
+    .lm-icon-name { display: flex; align-items: center; gap: 8px; }
+    .lm-icon { font-size: 16px; }
+    .lm-name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.9); }
+    .lm-close { background: none; border: none; color: rgba(255,255,255,0.22); font-size: 18px; cursor: pointer; line-height: 1; transition: color 0.2s; }
+    .lm-close:hover { color: rgba(255,255,255,0.7); }
+    .lm-desc { padding: 12px 14px; font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.65; }
+
+    /* ── Bottom strip ── */
+    #bottombar {
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+      padding: 50px 28px 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+      pointer-events: none;
+    }
+    #stop-strip { display: flex; align-items: center; gap: 14px; }
+    .strip-item { display: flex; align-items: center; gap: 7px; opacity: 0.22; transition: opacity 0.4s; cursor: pointer; pointer-events: auto; }
+    .strip-item:hover { opacity: 0.7; }
+    .strip-item.current { opacity: 1; }
+    .strip-item.passed { opacity: 0.5; }
+    .strip-num { width: 20px; height: 20px; border-radius: 50%; background: var(--gold); color: #000; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.3s; }
+    .strip-num.ktv { background: var(--ktv); color: #fff; }
+    .strip-num.dance { background: var(--dance); color: #000; }
+    .strip-name { font-size: 11px; color: rgba(255,255,255,0.85); letter-spacing: 0.04em; white-space: nowrap; }
+    .strip-connector { width: 28px; height: 1px; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+
+    /* ── Progress ── */
+    #progress { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; z-index: 30; background: rgba(255,255,255,0.04); }
+    #progress-fill { height: 100%; background: var(--gold); width: 0%; transition: width 0.3s linear, background 0.3s; }
+    #progress-fill.ktv { background: var(--ktv); }
+    #progress-fill.dance { background: var(--dance); }
+
+    /* ── Cab marker ── */
+    .cab-el { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+    .cab-emoji { font-size: 30px; line-height: 1; filter: drop-shadow(0 2px 10px rgba(0,0,0,1)); }
+    .cab-beam { width: 2px; height: 12px; margin-top: 2px; background: linear-gradient(to bottom, rgba(200,169,110,0.9), transparent); }
+
+    /* ── Mapbox overrides ── */
+    .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right { display: none; }
+    .mapboxgl-ctrl-top-right { top: 22px; right: 28px; }
+    .mapboxgl-ctrl-group { background: rgba(6,6,18,0.8) !important; border: 1px solid rgba(255,255,255,0.1) !important; }
+    .mapboxgl-ctrl-group button { background-color: transparent !important; }
+    .mapboxgl-ctrl-group button span { filter: invert(1) opacity(0.5); }
+  </style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ld-lantern">🏮</div>
+  <div class="ld-title">After Sunset in Chengdu</div>
+  <div class="ld-track"><div class="ld-fill" id="ld-fill"></div></div>
+  <div class="ld-hint" id="ld-hint">Loading Chengdu…</div>
+</div>
+
+<div id="map"></div>
+
+<div id="topbar">
+  <div><h1 id="topbar-title">After Sunset · Bar Crawl</h1><p id="topbar-sub">Jinjiang District · 6 stops · Classic cocktail route</p></div>
+  <div id="ctrl-hint">Drag to rotate<br>Scroll to zoom<br>Click to explore</div>
+</div>
+
+<!-- Mode toggle -->
+<div id="mode-toggle">
+  <button class="toggle-btn active-bar" id="btn-bar" onclick="setMode('bar')">🍹 Bar Crawl</button>
+  <button class="toggle-btn" id="btn-ktv" onclick="setMode('ktv')">🎤 KTV</button>
+  <button class="toggle-btn" id="btn-dance" onclick="setMode('dance')">💃 Dance</button>
+</div>
+
+<button id="ride-btn">🚕 Ride the Cab</button>
+<div id="status"></div>
+
+<div id="bar-card">
+  <div class="bc-wrap" id="bc-wrap">
+    <div class="bc-photo">
+      <div class="bc-photo-bg" id="bc-photo-bg"></div>
+      <div class="bc-photo-overlay"></div>
+      <div class="bc-photo-label">
+        <span class="bc-stop-tag" id="bc-stop-tag"></span>
+        <button class="bc-close-btn" id="bc-close">×</button>
+      </div>
+    </div>
+    <div class="bc-body">
+      <div class="bc-name" id="bc-name"></div>
+      <div class="bc-loc" id="bc-loc"></div>
+      <div class="bc-desc" id="bc-desc"></div>
+      <div class="bc-rule" id="bc-rule"></div>
+      <div class="bc-must" id="bc-must">Must try</div>
+      <ul class="bc-drinks" id="bc-drinks"></ul>
+    </div>
+  </div>
+</div>
+
+<div id="lm-card">
+  <div class="lm-wrap">
+    <div class="lm-header">
+      <div class="lm-icon-name">
+        <span class="lm-icon" id="lm-icon"></span>
+        <span class="lm-name" id="lm-name"></span>
+      </div>
+      <button class="lm-close" id="lm-close">×</button>
+    </div>
+    <div class="lm-desc" id="lm-desc"></div>
+  </div>
+</div>
+
+<div id="bottombar"><div id="stop-strip"></div></div>
+<div id="progress"><div id="progress-fill"></div></div>
+
+<script>
+// ─── DATA: BARS ───────────────────────────────────────────────────────────────
+
+const bars = [
+  { name:'Chinese Room', stop:1, coords:[104.0672, 30.6558],
+    location:'68 Qinglianshang Street, Jinjiang District',
+    tag:'Stop 1 · Rococo & immersive',
+    desc:'Possibly the most visually spectacular cocktail bar in Chengdu. French Rococo aesthetics meet Chinese-inspired design in an immersive space unlike anything most visitors have seen before.',
+    drinks:['Chinese tea cocktails','Zodiac-inspired signatures','Custom Chinese vessel serves'],
+    photo:'https://images.unsplash.com/photo-1538488881038-e252a119ace7?w=600&q=80',
+    color:'#e05050' },
+  { name:'JING', stop:2, coords:[104.0726, 30.6579],
+    location:'The Temple House, 81 Bitieshi Street',
+    tag:'Stop 2 · Refined cocktails',
+    desc:'Nestled inside The Temple House hotel, JING blends world-class cocktail craft with Sichuan ingredients. Expect precise presentation, intimate lighting, and drinks that feel as refined as the setting.',
+    drinks:['Sichuan Negroni','Tea-infused cocktails','Sichuan pepper creations'],
+    photo:'https://images.unsplash.com/photo-1546171753-97d7676e4602?w=600&q=80',
+    color:'#9060e0' },
+  { name:'BAR.Chill', stop:3, coords:[104.0752, 30.6522],
+    location:'9-18 Dachuan Lane, Jinjiang District',
+    tag:'Stop 3 · Modern Chinese mixology',
+    desc:"One of Chengdu's most celebrated cocktail bars. BAR.Chill pushes the boundaries of Chinese mixology — fermenting, infusing, and reimagining local Sichuan flavours into modern cocktails.",
+    drinks:['Sichuan-inspired tasting menu','Fermented local ingredients','Seasonal regional cocktails'],
+    photo:'https://images.unsplash.com/photo-1525268323446-0505b6fe7778?w=600&q=80',
+    color:'#40c080' },
+  { name:'Papuwa', stop:4, coords:[104.0788, 30.6495],
+    location:'55 Dongshuncheng South Street, Jinjiang District',
+    tag:'Stop 4 · Tropical & playful',
+    desc:"A tropical fantasy hidden inside downtown Chengdu. Papuwa's colourful, playful atmosphere makes it a favourite with younger crowds and first-time visitors looking for something fun and unexpected.",
+    drinks:['Chili-infused tropical cocktails','Pomelo-based drinks','Seasonal Sichuan fruit creations'],
+    photo:'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&q=80',
+    color:'#e08030' },
+  { name:'Sage', stop:5, coords:[104.0801, 30.6536],
+    location:'IFS International Finance Centre, 258 Lower Dongda Road',
+    tag:'Stop 5 · Whisky & precision',
+    desc:'A benchmark cocktail bar among Chengdu bartenders and enthusiasts. Sage is known for precise execution, exceptional whisky selections, and elegant cocktails featuring local Chinese ingredients.',
+    drinks:['Sichuan Pepper Old Fashioned','Osmanthus Gin Fizz','Rare whisky flights'],
+    photo:'https://images.unsplash.com/photo-1527761939622-933c972c9a2c?w=600&q=80',
+    color:'#d4a020' },
+  { name:"Ralph's Bar", stop:6, coords:[104.0812, 30.6571],
+    location:'Ralph Lauren Mansion, Taikoo Li Chengdu',
+    tag:'Stop 6 · New York private club',
+    desc:"One of only a handful of Ralph Lauren bars in the world. The atmosphere evokes a classic New York private club — mahogany, leather, and impeccable service — transplanted into the heart of Chengdu.",
+    drinks:["Ralph's Old Fashioned",'Classic Martini','American whiskey selections'],
+    photo:'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?w=600&q=80',
+    color:'#4090d0' },
+];
+
+// ─── DATA: KTV (ordered west → east) ─────────────────────────────────────────
+
+const ktvs = [
+  { name:'凯宾斯基 KTV', stop:1, coords:[104.0594, 30.6228],
+    location:'人民南路四段42号, Wuhou District (Kempinski Hotel)',
+    tag:'Stop 1 · Luxury hotel KTV',
+    desc:'Set inside the prestigious Kempinski Hotel, this upscale KTV offers lavish private suites, professional sound systems, and attentive butler service — the gold standard for a special night out.',
+    drinks:['VIP private suites','Premium bottle service','Live host entertainment'],
+    photo:'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=600&q=80',
+    color:'#e040fb' },
+  { name:'碧家 KTV', stop:2, coords:[104.0692, 30.6545],
+    location:'太升南路53-57号, Jinjiang District',
+    tag:'Stop 2 · Local favourite',
+    desc:"A well-loved neighbourhood KTV popular with locals for its solid song library, comfortable rooms, and very reasonable prices. Great for groups who want a relaxed, unpretentious night of singing.",
+    drinks:['Classic Chinese song library','Late-night snack platters','Affordable group packages'],
+    photo:'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&q=80',
+    color:'#40c4ff' },
+  { name:'总府皇冠 KTV', stop:3, coords:[104.0798, 30.6592],
+    location:'总府街31号, Jinjiang District',
+    tag:'Stop 3 · Downtown crown',
+    desc:'Centrally located on Zongfu Street, steps from Chunxi Road. Total Palace KTV is a reliable mid-range spot with a wide selection of room sizes, a strong sound system, and a lively atmosphere.',
+    drinks:['Mid-range private rooms','Strong sound system','Central downtown location'],
+    photo:'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80',
+    color:'#ff4081' },
+  { name:'JW 万豪 KTV', stop:4, coords:[104.0826, 30.6574],
+    location:'东御街19号, JW Marriott Hotel, Jinjiang District',
+    tag:'Stop 4 · Five-star experience',
+    desc:'Inside the JW Marriott Chengdu, this KTV combines five-star hotel elegance with world-class audiovisual equipment. Impeccable service, international song selection, and stunning city views.',
+    drinks:['Executive suite rooms','International song library','Hotel concierge service'],
+    photo:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&q=80',
+    color:'#69f0ae' },
+  { name:'蒙娜丽莎 KTV', stop:5, coords:[104.1050, 30.6438],
+    location:'二环路东五段68号万达广场, Jinjiang District',
+    tag:'Stop 5 · Wanda Plaza flagship',
+    desc:'The flagship location inside Wanda Plaza on the East 2nd Ring Road. One of the most popular KTV destinations in the city — themed private rooms, top-tier sound, and great late-night energy.',
+    drinks:['Themed private rooms','Top-tier sound system','Wanda Plaza convenience'],
+    photo:'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=600&q=80',
+    color:'#ff6e40' },
+];
+
+// ─── DATA: DANCE CLUBS (ordered west → east) ─────────────────────────────────
+
+const clubs = [
+  { name:'爵尔顿舞厅', stop:1, coords:[104.0452, 30.6815],
+    location:'金仙桥路12号, Jinniu District',
+    tag:'Stop 1 · Classic ballroom',
+    desc:'A beloved Chengdu ballroom institution in Jinniu District. Known for its spacious dance floor, live band performances, and a welcoming crowd of enthusiastic dancers of all ages and skill levels.',
+    drinks:['Live band evenings','Waltz & cha-cha nights','Beginner-friendly sessions'],
+    photo:'https://images.unsplash.com/photo-1504609773096-104ff2c73ba4?w=600&q=80',
+    color:'#f50057' },
+  { name:'天涯舞厅', stop:2, coords:[104.0535, 30.6802],
+    location:'乡农市街59号金港商城A座, Jinniu District',
+    tag:'Stop 2 · Local favourite',
+    desc:'Tucked inside Jingang Commercial Plaza, Tianya is a popular mid-range dance hall with a great mix of Latin and ballroom styles. Friendly regulars and an electric atmosphere on weekend nights.',
+    drinks:['Latin nights (salsa, rumba)','Couples dance sessions','Weekend DJ sets'],
+    photo:'https://images.unsplash.com/photo-1545128485-c400e7702796?w=600&q=80',
+    color:'#ff9100' },
+  { name:'菲林 Club', stop:3, coords:[104.0638, 30.6608],
+    location:'顺城大街289号富力中心, Qingyang District',
+    tag:'Stop 3 · Modern club dance',
+    desc:'A modern dance club in the heart of Qingyang District at Fuli Center. Feilin blends contemporary club culture with social dance — think live DJs, neon lighting, and a younger energetic crowd.',
+    drinks:['DJ-driven dance nights','Modern club atmosphere','Themed party weekends'],
+    photo:'https://images.unsplash.com/photo-1571266028243-d220c6a40a4b?w=600&q=80',
+    color:'#00e5ff' },
+  { name:'新恋曲舞厅', stop:4, coords:[104.1012, 30.6688],
+    location:'双林路1号精英大厦, Chenghua District',
+    tag:'Stop 4 · East-side gem',
+    desc:'A charming dance hall in Chenghua District named "New Love Song." Well-known for its romantic atmosphere, quality sound system, and a loyal crowd who come every week to dance the night away.',
+    drinks:['Romantic slow dance sets','Weekly competitions','Ballroom & folk dance mix'],
+    photo:'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=600&q=80',
+    color:'#b2ff59' },
+];
+
+// ─── LANDMARKS ───────────────────────────────────────────────────────────────
+
+const landmarks = [
+  { name:'Taikoo Li', coords:[104.0812, 30.6571], icon:'🏙',
+    photo:'https://images.unsplash.com/photo-1573408301185-9519f94a2f4e?w=600&q=80',
+    desc:"An open-air lifestyle complex blending historic Sichuan architecture with luxury retail and dining. One of Chengdu's most photogenic and lively districts, especially vibrant after dark." },
+  { name:'Chunxi Road', coords:[104.0801, 30.6556], icon:'🛍',
+    photo:'https://images.unsplash.com/photo-1519861531473-9200262188bf?w=600&q=80',
+    desc:"Chengdu's premier shopping street, buzzing day and night. A mix of high-street fashion, local snack stalls, and street performers — the beating commercial heart of the city." },
+  { name:'Tianfu Square', coords:[104.0657, 30.6571], icon:'⭐',
+    photo:'https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=600&q=80',
+    desc:"The grand central plaza of Chengdu, featuring a towering statue of Mao Zedong and wide pedestrian promenades. A symbolic landmark and popular meeting point at the city's geographic centre." },
+  { name:'Kuanzhai Alley', coords:[104.0577, 30.6705], icon:'🏮',
+    photo:'https://images.unsplash.com/photo-1547981609-4b6bfe67ca0b?w=600&q=80',
+    desc:'Three beautifully preserved Qing Dynasty lanes lined with teahouses, Sichuan restaurants, and artisan shops. A top cultural attraction and great place to people-watch.' },
+  { name:'Wuhou Temple', coords:[104.0476, 30.6402], icon:'🏯',
+    photo:'https://images.unsplash.com/photo-1599707367072-cd6ada2bc375?w=600&q=80',
+    desc:"A 1,700-year-old memorial temple dedicated to Zhuge Liang and the heroes of the Three Kingdoms period. Set in a peaceful garden, it's one of the most historically significant sites in Chengdu." },
+  { name:'Jinli Street', coords:[104.0493, 30.6409], icon:'🏮',
+    photo:'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80',
+    desc:'A lively ancient-style pedestrian street next to Wuhou Temple. Famous for Sichuan snacks, shadow puppets, tea ceremonies, and craft souvenirs. Most atmospheric at night when the red lanterns glow.' },
+  { name:'Renmin Park', coords:[104.0607, 30.6640], icon:'🌿',
+    photo:'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=600&q=80',
+    desc:"Chengdu's beloved public park, known for its traditional teahouses where locals spend hours sipping tea, playing mahjong, and simply relaxing. A perfect window into everyday Chengdu life." },
+];
+
+// ─── MAPBOX INIT ─────────────────────────────────────────────────────────────
+
+mapboxgl.accessToken = 'pk.eyJ1IjoicmF5b250aGVyb2FkIiwiYSI6ImNtcW14cG0yaTFmYWQycnExazF0d2VtdXAifQ.3i2tGiPc6NO52CI1U97rxQ';
+
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/dark-v11',
+  center: [104.0742, 30.6538],
+  zoom: 13.8, pitch: 55, bearing: -10,
+  antialias: true,
+});
+
+map.addControl(new mapboxgl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right');
+
+// ─── ROUTE BUILDER ───────────────────────────────────────────────────────────
+
+function buildRoute(places) {
+  const pts = places.map(p => p.coords);
+  const result = [];
+  const N = 80;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i-1,0)], p1 = pts[i], p2 = pts[i+1], p3 = pts[Math.min(i+2,pts.length-1)];
+    for (let t = 0; t < N; t++) {
+      const s = t/N, s2 = s*s, s3 = s2*s;
+      result.push([
+        0.5*((2*p1[0])+(-p0[0]+p2[0])*s+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*s2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*s3),
+        0.5*((2*p1[1])+(-p0[1]+p2[1])*s+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*s2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*s3),
+      ]);
+    }
+  }
+  result.push(pts[pts.length-1]);
+  return result;
+}
+
+const barRoute   = buildRoute(bars);
+const ktvRoute   = buildRoute(ktvs);
+const clubRoute  = buildRoute(clubs);
+
+// ─── MODE STATE ──────────────────────────────────────────────────────────────
+
+let currentMode = 'bar'; // 'bar' | 'ktv' | 'dance'
+
+function activeData()  { return currentMode === 'bar' ? bars : currentMode === 'ktv' ? ktvs : clubs; }
+function activeRoute() { return currentMode === 'bar' ? barRoute : currentMode === 'ktv' ? ktvRoute : clubRoute; }
+
+// ─── MAP LOAD ────────────────────────────────────────────────────────────────
+
+map.on('style.load', () => {
+  // 3D buildings
+  map.addLayer({
+    id: 'add-3d-buildings', source: 'composite', 'source-layer': 'building',
+    filter: ['==', 'extrude', 'true'], type: 'fill-extrusion', minzoom: 13,
+    paint: {
+      'fill-extrusion-color': ['interpolate',['linear'],['get','height'],0,'#0d1530',50,'#162040',100,'#1a2850',200,'#1e3060'],
+      'fill-extrusion-height': ['interpolate',['linear'],['zoom'],13,0,13.5,['get','height']],
+      'fill-extrusion-base': ['interpolate',['linear'],['zoom'],13,0,13.5,['get','min_height']],
+      'fill-extrusion-opacity': 0.85
+    }
+  });
+
+  // ── Bar route layers ──
+  map.addSource('bar-route', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:barRoute } } });
+  map.addLayer({ id:'bar-route-glow', type:'line', source:'bar-route', layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':'#c8a96e','line-width':8,'line-opacity':0.1,'line-blur':6} });
+  map.addLayer({ id:'bar-route-line', type:'line', source:'bar-route', layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':'#c8a96e','line-width':1.5,'line-opacity':0.3,'line-dasharray':[4,5]} });
+
+  // ── KTV route layers (hidden initially) ──
+  map.addSource('ktv-route', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:ktvRoute } } });
+  map.addLayer({ id:'ktv-route-glow', type:'line', source:'ktv-route', layout:{'line-join':'round','line-cap':'round','visibility':'none'}, paint:{'line-color':'#e040fb','line-width':8,'line-opacity':0.12,'line-blur':6} });
+  map.addLayer({ id:'ktv-route-line', type:'line', source:'ktv-route', layout:{'line-join':'round','line-cap':'round','visibility':'none'}, paint:{'line-color':'#e040fb','line-width':1.5,'line-opacity':0.35,'line-dasharray':[4,5]} });
+
+  // ── Dance route layers (hidden initially) ──
+  map.addSource('club-route', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:clubRoute } } });
+  map.addLayer({ id:'club-route-glow', type:'line', source:'club-route', layout:{'line-join':'round','line-cap':'round','visibility':'none'}, paint:{'line-color':'#00e5ff','line-width':8,'line-opacity':0.12,'line-blur':6} });
+  map.addLayer({ id:'club-route-line', type:'line', source:'club-route', layout:{'line-join':'round','line-cap':'round','visibility':'none'}, paint:{'line-color':'#00e5ff','line-width':1.5,'line-opacity':0.35,'line-dasharray':[4,5]} });
+
+  // ── Traveled trail ──
+  map.addSource('traveled', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:[] } } });
+  map.addLayer({ id:'traveled-line', type:'line', source:'traveled', layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':'#f0c060','line-width':3.5,'line-opacity':0.9} });
+
+  addGLMarkers();
+
+  map.once('idle', () => {
+    setTimeout(() => {
+      map.flyTo({ center:[104.0742,30.6538], zoom:14.5, pitch:55, bearing:-10, duration:2800, essential:true });
+    }, 400);
+  });
+});
+
+// ─── GL MARKERS ──────────────────────────────────────────────────────────────
+
+function addGLMarkers() {
+  // ── Bar markers ──
+  const barGJ = { type:'FeatureCollection', features: bars.map((b,i) => ({ type:'Feature', id:i, geometry:{type:'Point',coordinates:b.coords}, properties:{name:b.name,color:b.color,index:i} })) };
+  map.addSource('bars', { type:'geojson', data:barGJ });
+  map.addLayer({ id:'bars-glow', type:'circle', source:'bars', paint:{'circle-radius':18,'circle-color':['get','color'],'circle-opacity':0.15,'circle-blur':1} });
+  map.addLayer({ id:'bars-pulse', type:'circle', source:'bars', paint:{'circle-radius':10,'circle-color':['get','color'],'circle-opacity':0.4,'circle-stroke-width':2,'circle-stroke-color':['get','color'],'circle-stroke-opacity':0.8} });
+  map.addLayer({ id:'bars-dot', type:'circle', source:'bars', paint:{'circle-radius':7,'circle-color':['get','color'],'circle-stroke-width':2,'circle-stroke-color':'#000','circle-stroke-opacity':0.6} });
+  map.addLayer({ id:'bars-label', type:'symbol', source:'bars', layout:{'text-field':['get','name'],'text-font':['DIN Pro Medium','Arial Unicode MS Regular'],'text-size':11,'text-offset':[0,1.4],'text-anchor':'top','text-allow-overlap':true,'text-ignore-placement':true}, paint:{'text-color':'#fff','text-opacity':0.9,'text-halo-color':'#000','text-halo-width':1.5} });
+
+  map.on('click','bars-dot',(e) => {
+    if (currentMode !== 'bar') return;
+    const i = e.features[0].properties.index;
+    showCard(bars[i], i);
+    map.flyTo({ center:bars[i].coords, zoom:16, pitch:58, bearing:-10, duration:1200, essential:true });
+  });
+  map.on('mouseenter','bars-dot',() => { if(currentMode==='bar') map.getCanvas().style.cursor='pointer'; });
+  map.on('mouseleave','bars-dot',() => { map.getCanvas().style.cursor=''; });
+
+  // ── KTV markers (hidden initially) ──
+  const ktvGJ = { type:'FeatureCollection', features: ktvs.map((k,i) => ({ type:'Feature', id:i, geometry:{type:'Point',coordinates:k.coords}, properties:{name:k.name,color:k.color,index:i} })) };
+  map.addSource('ktvs', { type:'geojson', data:ktvGJ });
+  map.addLayer({ id:'ktv-glow', type:'circle', source:'ktvs', layout:{'visibility':'none'}, paint:{'circle-radius':18,'circle-color':['get','color'],'circle-opacity':0.15,'circle-blur':1} });
+  map.addLayer({ id:'ktv-pulse', type:'circle', source:'ktvs', layout:{'visibility':'none'}, paint:{'circle-radius':10,'circle-color':['get','color'],'circle-opacity':0.4,'circle-stroke-width':2,'circle-stroke-color':['get','color'],'circle-stroke-opacity':0.8} });
+  map.addLayer({ id:'ktv-dot', type:'circle', source:'ktvs', layout:{'visibility':'none'}, paint:{'circle-radius':7,'circle-color':['get','color'],'circle-stroke-width':2,'circle-stroke-color':'#000','circle-stroke-opacity':0.6} });
+  map.addLayer({ id:'ktv-label', type:'symbol', source:'ktvs', layout:{'visibility':'none','text-field':['get','name'],'text-font':['DIN Pro Medium','Arial Unicode MS Regular'],'text-size':11,'text-offset':[0,1.4],'text-anchor':'top','text-allow-overlap':true,'text-ignore-placement':true}, paint:{'text-color':'#fff','text-opacity':0.9,'text-halo-color':'#000','text-halo-width':1.5} });
+
+  map.on('click','ktv-dot',(e) => {
+    if (currentMode !== 'ktv') return;
+    const i = e.features[0].properties.index;
+    showCard(ktvs[i], i);
+    map.flyTo({ center:ktvs[i].coords, zoom:16, pitch:58, bearing:-10, duration:1200, essential:true });
+  });
+  map.on('mouseenter','ktv-dot',() => { if(currentMode==='ktv') map.getCanvas().style.cursor='pointer'; });
+  map.on('mouseleave','ktv-dot',() => { map.getCanvas().style.cursor=''; });
+
+  // ── Dance club markers (hidden initially) ──
+  const clubGJ = { type:'FeatureCollection', features: clubs.map((c,i) => ({ type:'Feature', id:i, geometry:{type:'Point',coordinates:c.coords}, properties:{name:c.name,color:c.color,index:i} })) };
+  map.addSource('clubs', { type:'geojson', data:clubGJ });
+  map.addLayer({ id:'club-glow',  type:'circle', source:'clubs', layout:{'visibility':'none'}, paint:{'circle-radius':18,'circle-color':['get','color'],'circle-opacity':0.15,'circle-blur':1} });
+  map.addLayer({ id:'club-pulse', type:'circle', source:'clubs', layout:{'visibility':'none'}, paint:{'circle-radius':10,'circle-color':['get','color'],'circle-opacity':0.4,'circle-stroke-width':2,'circle-stroke-color':['get','color'],'circle-stroke-opacity':0.8} });
+  map.addLayer({ id:'club-dot',   type:'circle', source:'clubs', layout:{'visibility':'none'}, paint:{'circle-radius':7,'circle-color':['get','color'],'circle-stroke-width':2,'circle-stroke-color':'#000','circle-stroke-opacity':0.6} });
+  map.addLayer({ id:'club-label', type:'symbol', source:'clubs', layout:{'visibility':'none','text-field':['get','name'],'text-font':['DIN Pro Medium','Arial Unicode MS Regular'],'text-size':11,'text-offset':[0,1.4],'text-anchor':'top','text-allow-overlap':true,'text-ignore-placement':true}, paint:{'text-color':'#fff','text-opacity':0.9,'text-halo-color':'#000','text-halo-width':1.5} });
+
+  map.on('click','club-dot',(e) => {
+    if (currentMode !== 'dance') return;
+    const i = e.features[0].properties.index;
+    showCard(clubs[i], i);
+    map.flyTo({ center:clubs[i].coords, zoom:16, pitch:58, bearing:-10, duration:1200, essential:true });
+  });
+  map.on('mouseenter','club-dot',() => { if(currentMode==='dance') map.getCanvas().style.cursor='pointer'; });
+  map.on('mouseleave','club-dot',() => { map.getCanvas().style.cursor=''; });
+
+  // ── Landmarks ──
+  const lmGJ = { type:'FeatureCollection', features: landmarks.map((l,i) => ({ type:'Feature', id:i, geometry:{type:'Point',coordinates:l.coords}, properties:{name:l.name,index:i} })) };
+  map.addSource('landmarks', { type:'geojson', data:lmGJ });
+  map.addLayer({ id:'landmarks-dot', type:'circle', source:'landmarks', paint:{'circle-radius':6,'circle-color':'#3a60b0','circle-stroke-width':1.5,'circle-stroke-color':'#6090e0'} });
+  map.addLayer({ id:'landmarks-label', type:'symbol', source:'landmarks', layout:{'text-field':['get','name'],'text-font':['DIN Pro Regular','Arial Unicode MS Regular'],'text-size':10,'text-offset':[0,1.2],'text-anchor':'top','text-allow-overlap':false}, paint:{'text-color':'rgba(180,200,255,0.75)','text-halo-color':'#000','text-halo-width':1} });
+  map.on('click','landmarks-dot',(e) => { showLmCard(landmarks[e.features[0].properties.index]); });
+  map.on('mouseenter','landmarks-dot',() => { map.getCanvas().style.cursor='pointer'; });
+  map.on('mouseleave','landmarks-dot',() => { map.getCanvas().style.cursor=''; });
+
+  // ── Pulse animation (starts after first idle) ──
+  map.once('idle', () => {
+    let pulseT = 0;
+    const barLayers = ['bars-pulse'];
+    const ktvLayers = ['ktv-pulse'];
+    function animatePulse() {
+      pulseT += 0.04;
+      const radius = 10 + 8 * Math.abs(Math.sin(pulseT));
+      const opacity = 0.5 - 0.4 * Math.abs(Math.sin(pulseT));
+      const activePulse = currentMode === 'bar' ? 'bars-pulse' : currentMode === 'ktv' ? 'ktv-pulse' : 'club-pulse';
+      if (map.getLayer(activePulse)) {
+        map.setPaintProperty(activePulse, 'circle-radius', radius);
+        map.setPaintProperty(activePulse, 'circle-opacity', opacity);
+      }
+      requestAnimationFrame(animatePulse);
+    }
+    animatePulse();
+  });
+}
+
+// ─── MODE SWITCH ─────────────────────────────────────────────────────────────
+
+const barLayers   = ['bar-route-glow','bar-route-line','bars-glow','bars-pulse','bars-dot','bars-label'];
+const ktvLayers   = ['ktv-route-glow','ktv-route-line','ktv-glow','ktv-pulse','ktv-dot','ktv-label'];
+const danceLayers = ['club-route-glow','club-route-line','club-glow','club-pulse','club-dot','club-label'];
+const allModeLayers = [...barLayers, ...ktvLayers, ...danceLayers];
+
+function setMode(mode) {
+  if (currentMode === mode) return;
+  if (riding) stopRide();
+  currentMode = mode;
+  hideBarCard(); hideLmCard();
+
+  // Show only the active mode's layers
+  allModeLayers.forEach(id => {
+    if (!map.getLayer(id)) return;
+    const visible = (mode==='bar' && barLayers.includes(id)) ||
+                    (mode==='ktv' && ktvLayers.includes(id)) ||
+                    (mode==='dance' && danceLayers.includes(id));
+    map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+
+  // Toggle buttons
+  document.getElementById('btn-bar').className   = 'toggle-btn' + (mode==='bar'   ? ' active-bar'   : '');
+  document.getElementById('btn-ktv').className   = 'toggle-btn' + (mode==='ktv'   ? ' active-ktv'   : '');
+  document.getElementById('btn-dance').className = 'toggle-btn' + (mode==='dance' ? ' active-dance' : '');
+
+  // Topbar
+  const titles = { bar:'After Sunset · Bar Crawl', ktv:'After Sunset · KTV Guide', dance:'After Sunset · Dance Halls' };
+  const subs   = { bar:'Jinjiang District · 6 stops · Classic cocktail route', ktv:'Jinjiang & Wuhou · 5 venues · Night out', dance:'Jinniu, Qingyang & Chenghua · 4 venues · Dancing night' };
+  document.getElementById('topbar-title').textContent = titles[mode];
+  document.getElementById('topbar-sub').textContent   = subs[mode];
+
+  // Ride button style
+  const rideBtn = document.getElementById('ride-btn');
+  rideBtn.classList.toggle('ktv-mode',   mode==='ktv');
+  rideBtn.classList.toggle('dance-mode', mode==='dance');
+
+  // Progress fill color
+  const pf = document.getElementById('progress-fill');
+  pf.classList.toggle('ktv',   mode==='ktv');
+  pf.classList.toggle('dance', mode==='dance');
+
+  buildStrip();
+
+  const centers = { bar:[104.0742,30.6538], ktv:[104.0820,30.6410], dance:[104.0760,30.6720] };
+  const zooms   = { bar:14.5, ktv:13.2, dance:13.0 };
+  map.flyTo({ center:centers[mode], zoom:zooms[mode], pitch:55, bearing:-10, duration:1200, essential:true });
+}
+
+// ─── BOTTOM STRIP ────────────────────────────────────────────────────────────
+
+function buildStrip() {
+  const strip = document.getElementById('stop-strip');
+  strip.innerHTML = '';
+  const data = activeData();
+  const numClass = currentMode==='ktv' ? ' ktv' : currentMode==='dance' ? ' dance' : '';
+  data.forEach((item, i) => {
+    if (i > 0) { const c = document.createElement('div'); c.className='strip-connector'; strip.appendChild(c); }
+    const el = document.createElement('div');
+    el.className = 'strip-item'; el.id = `strip-${i}`;
+    el.innerHTML = `<div class="strip-num${numClass}">${item.stop}</div><div class="strip-name">${item.name}</div>`;
+    el.addEventListener('click', () => {
+      showCard(item, i);
+      map.flyTo({ center:item.coords, zoom:16, pitch:58, bearing:-10, duration:1400, essential:true });
+    });
+    strip.appendChild(el);
+  });
+}
+
+buildStrip();
+
+// ─── CAB ANIMATION ───────────────────────────────────────────────────────────
+
+const cabEl = document.createElement('div');
+cabEl.className = 'cab-el';
+cabEl.innerHTML = '<div class="cab-emoji">🚕</div><div class="cab-beam"></div>';
+const cabMarker = new mapboxgl.Marker({ element: cabEl, anchor: 'bottom' });
+
+let riding = false, rideRaf = null, rideT0 = null;
+const RIDE_DUR = 38000;
+const announced = new Set();
+
+document.getElementById('ride-btn').addEventListener('click', () => riding ? stopRide() : startRide());
+
+function startRide() {
+  const data = activeData(), route = activeRoute();
+  riding = true;
+  announced.clear();
+  hideBarCard(); hideLmCard();
+  const rideBtn = document.getElementById('ride-btn');
+  rideBtn.textContent = '✕ Stop Ride';
+  rideBtn.classList.add('riding');
+  document.querySelectorAll('.strip-item').forEach(el => el.classList.remove('current','passed'));
+  cabMarker.setLngLat(route[0]).addTo(map);
+  map.getSource('traveled').setData({ type:'Feature', geometry:{ type:'LineString', coordinates:[] } });
+  // Trail color matches mode
+  const trailColor = currentMode==='ktv' ? '#f06cff' : currentMode==='dance' ? '#00e5ff' : '#f0c060';
+  map.setPaintProperty('traveled-line','line-color', trailColor);
+  const statusMsg = { bar:'Riding through Jinjiang District…', ktv:'Cruising to the KTV venues…', dance:'Dancing across Chengdu…' };
+  setStatus(statusMsg[currentMode]);
+  map.flyTo({ center:data[0].coords, zoom:15, pitch:62, bearing:-10, duration:1800, essential:true });
+  rideT0 = null;
+  rideRaf = requestAnimationFrame(rideFrame);
+}
+
+function rideFrame(now) {
+  if (!riding) return;
+  if (!rideT0) rideT0 = now;
+  const route = activeRoute(), data = activeData();
+  const t = Math.min((now - rideT0) / RIDE_DUR, 1);
+  const total = route.length - 1;
+  const frac = t * total;
+  const idx = Math.min(Math.floor(frac), total - 1);
+  const a = route[idx], b = route[idx+1] || route[idx];
+  const blend = frac - idx;
+  const pos = [a[0]+(b[0]-a[0])*blend, a[1]+(b[1]-a[1])*blend];
+
+  cabMarker.setLngLat(pos);
+  map.getSource('traveled').setData({ type:'Feature', geometry:{ type:'LineString', coordinates: route.slice(0,idx+1).concat([pos]) } });
+  document.getElementById('progress-fill').style.width = (t*100).toFixed(2)+'%';
+
+  data.forEach((item, i) => {
+    const dx = (pos[0]-item.coords[0])*111320*Math.cos(item.coords[1]*Math.PI/180);
+    const dy = (pos[1]-item.coords[1])*110540;
+    if (!announced.has(i) && Math.sqrt(dx*dx+dy*dy) < 80) {
+      announced.add(i);
+      showCard(item, i);
+      document.getElementById(`strip-${i}`).classList.add('current');
+      data.forEach((_,j) => { if(j<i) document.getElementById(`strip-${j}`).classList.add('passed'); });
+      map.easeTo({ center:item.coords, zoom:15.5, pitch:62, bearing:-10, duration:1200, essential:true });
+    }
+  });
+
+  if (t < 1) rideRaf = requestAnimationFrame(rideFrame);
+  else setTimeout(stopRide, 1500);
+}
+
+function stopRide() {
+  riding = false;
+  if (rideRaf) { cancelAnimationFrame(rideRaf); rideRaf = null; }
+  cabMarker.remove();
+  map.getSource('traveled').setData({ type:'Feature', geometry:{ type:'LineString', coordinates:[] } });
+  const rideBtn = document.getElementById('ride-btn');
+  rideBtn.textContent = '🚕 Ride the Cab';
+  rideBtn.classList.remove('riding');
+  document.getElementById('progress-fill').style.width = '0%';
+  setStatus('');
+  const center = currentMode==='ktv' ? [104.0820,30.6410] : [104.0742,30.6538];
+  map.flyTo({ center, zoom:currentMode==='ktv'?13.2:14.5, pitch:55, bearing:-10, duration:2000, essential:true });
+}
+
+// ─── UI HELPERS ──────────────────────────────────────────────────────────────
+
+function setStatus(msg) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.classList.toggle('visible', msg !== '');
+}
+
+function showCard(item, i) {
+  const m = currentMode;
+  const suffix = m === 'bar' ? '' : ` ${m}`;
+  const mustLabel = m === 'bar' ? 'Must try' : 'Highlights';
+  document.getElementById('bc-stop-tag').textContent = item.tag;
+  document.getElementById('bc-stop-tag').className = 'bc-stop-tag' + suffix;
+  document.getElementById('bc-name').textContent = item.name;
+  document.getElementById('bc-loc').textContent = item.location;
+  document.getElementById('bc-desc').textContent = item.desc;
+  document.getElementById('bc-must').textContent = mustLabel;
+  document.getElementById('bc-drinks').className = 'bc-drinks' + suffix;
+  document.getElementById('bc-drinks').innerHTML = item.drinks.map(d => `<li>${d}</li>`).join('');
+  document.getElementById('bc-photo-bg').style.backgroundImage = `url(${item.photo})`;
+  document.getElementById('bc-wrap').className = 'bc-wrap' + suffix;
+  document.getElementById('bc-rule').className = 'bc-rule' + suffix;
+  document.getElementById('bar-card').classList.add('visible');
+  hideLmCard();
+}
+function hideBarCard() { document.getElementById('bar-card').classList.remove('visible'); }
+
+function showLmCard(lm) {
+  document.getElementById('lm-icon').textContent = lm.icon;
+  document.getElementById('lm-name').textContent = lm.name;
+  document.getElementById('lm-desc').textContent = lm.desc;
+  document.getElementById('lm-card').classList.add('visible');
+  hideBarCard();
+}
+function hideLmCard() { document.getElementById('lm-card').classList.remove('visible'); }
+
+document.getElementById('bc-close').addEventListener('click', hideBarCard);
+document.getElementById('lm-close').addEventListener('click', hideLmCard);
+
+// ─── LOADER ──────────────────────────────────────────────────────────────────
+
+const hints = ['Loading Chengdu…','Placing the venues…','Lighting the lanterns…','Building 3D scene…','Almost ready…'];
+let prog = 0;
+const ldFill = document.getElementById('ld-fill');
+const ldHint = document.getElementById('ld-hint');
+let mapIdle = false, loaderDone = false;
+
+map.once('idle', () => { mapIdle = true; tryDismissLoader(); });
+
+function tryDismissLoader() {
+  if (mapIdle && loaderDone) {
+    document.getElementById('loader').classList.add('fade-out');
+    setTimeout(() => { document.getElementById('loader').style.display='none'; }, 950);
+  }
+}
+
+function tick() {
+  prog += 4 + Math.random()*8;
+  if (prog > 95) prog = 95;
+  ldFill.style.width = prog+'%';
+  ldHint.textContent = hints[Math.min(Math.floor(prog/22), hints.length-1)];
+  if (prog < 95) setTimeout(tick, 80+Math.random()*60);
+  else {
+    const check = setInterval(() => {
+      if (mapIdle) { clearInterval(check); prog=100; ldFill.style.width='100%'; loaderDone=true; tryDismissLoader(); }
+    }, 200);
+  }
+}
+setTimeout(tick, 200);
+</script>
+</body>
+</html>
